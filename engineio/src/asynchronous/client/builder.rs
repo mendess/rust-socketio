@@ -127,9 +127,20 @@ impl ClientBuilder {
 
         let mut url = self.url.clone();
 
-        let handshake: HandshakePacket =
-            Packet::try_from(transport.next().await.ok_or(Error::IncompletePacket())??)?
-                .try_into()?;
+        let mut bytes = Bytes::new();
+        let handshake: HandshakePacket = loop {
+            bytes = bytes
+                .into_iter()
+                .chain(transport.next().await.ok_or(Error::IncompletePacket())??)
+                .collect();
+            match Packet::try_from(bytes.clone())?.try_into() {
+                Ok(p) => break p,
+                Err(Error::InvalidJson(e)) if e.is_eof() => {
+                    // retry
+                }
+                Err(e) => return Err(e),
+            };
+        };
 
         // update the base_url with the new sid
         url.query_pairs_mut().append_pair("sid", &handshake.sid[..]);
